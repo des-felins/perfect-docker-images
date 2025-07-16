@@ -159,6 +159,28 @@ ENTRYPOINT java -jar /app/neurowatch/target/*.jar
 
 # Результат
 
+```declarative
+ID         TAG                          SIZE      COMMAND                                                                         │
+│946a796e83 neurowatch-neurowatch:latest 0B        ENTRYPOINT ["/bin/sh" "-c" "java -jar /app/neurowatch/target/*.jar"]            │
+│<missing>                               0B        EXPOSE map[8081/tcp:{}]                                                         │
+│<missing>                               501.22MiB RUN /bin/sh -c cd neurowatch && ./mvnw -Pproduction clean package # buildkit    │
+│<missing>                               8.65MiB   COPY . /app/neurowatch # buildkit                                               │
+│<missing>                               0B        WORKDIR /app                                                                    │
+│<missing>                               0B        ENV JAVA_HOME=/usr/lib/jvm/jdk-24.0.1-bellsoft-x86_64 PATH=/usr/lib/jvm/jdk-24.0│
+│<missing>                               123.40MiB RUN |8 LIBERICA_IMAGE_VARIANT=lite LIBERICA_VM=server LIBERICA_GENERATE_CDS=fals│
+│<missing>                               0B        ARG BASE_URL=https://download.bell-sw.com/java/                                 │
+│<missing>                               0B        ARG LIBERICA_ROOT=/usr/lib/jvm/jdk-24.0.1-bellsoft                              │
+│<missing>                               0B        ARG LIBERICA_BUILD=11                                                           │
+│<missing>                               0B        ARG LIBERICA_VERSION=24.0.1                                                     │
+│<missing>                               0B        ARG LIBERICA_JVM_DIR=/usr/lib/jvm                                               │
+│<missing>                               0B        ARG LIBERICA_GENERATE_CDS=false                                                 │
+│<missing>                               0B        ARG LIBERICA_VM=server                                                          │
+│<missing>                               0B        ARG LIBERICA_IMAGE_VARIANT=lite                                                 │
+│<missing>                               0B        ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en                                          │
+│<missing>                               44.94MiB  RUN /bin/sh -c apt-get update                                &&    apt-get insta│
+│<missing>                               111.17MiB # debian.sh --arch 'amd64' out/ 'bookworm' '@1743984000'
+```
+
 
 ---
 layout: image-right
@@ -175,4 +197,45 @@ image: "/cubes-v.png"
 
 ---
 
-# 
+# Multi-stage
+
+---
+
+# Dockerfile
+
+---
+
+# Result
+
+```declarative
+ID         TAG                          SIZE      COMMAND                                                                         │
+│97855e4950 neurowatch-neurowatch:latest 0B        ENTRYPOINT ["java" "-jar" "/app/app.jar"]                                       │
+│<missing>                               0B        EXPOSE map[8080/tcp:{}]                                                         │
+│<missing>                               62.83MiB  COPY /app/neurowatch/target/neurowatch-*.jar app.jar # buildkit                 │
+│<missing>                               0B        WORKDIR /app                                                                    │
+│<missing>                               0B        ENV JAVA_HOME=/usr/lib/jvm/jre-24.0.1-bellsoft-x86_64 PATH=/usr/lib/jvm/jre-24.0│
+│<missing>                               124.82MiB RUN |6 LIBERICA_VERSION=24.0.1 LIBERICA_BUILD=11 LIBERICA_VARIANT=jre LIBERICA_R│
+│<missing>                               0B        ARG LIBERICA_GENERATE_CDS=false                                                 │
+│<missing>                               0B        ARG LIBERICA_USE_LITE=1                                                         │
+│<missing>                               0B        ARG LIBERICA_ROOT=/usr/lib/jvm/jre-24.0.1-bellsoft                              │
+│<missing>                               0B        ARG LIBERICA_VARIANT=jre                                                        │
+│<missing>                               0B        ARG LIBERICA_BUILD=11                                                           │
+│<missing>                               0B        ARG LIBERICA_VERSION=24.0.1                                                     │
+│<missing>                               0B        ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en                                          │
+│<missing>                               44.94MiB  RUN /bin/sh -c apt-get update                                &&    apt-get insta│
+│<missing>                               111.17MiB # debian.sh --arch 'amd64' out/ 'bookworm' '@1743984000'
+```
+
+
+---
+
+# Result
+
+```declarative
+ID         TAG                          SIZE      COMMAND                                                                         │
+│c88af46c34 neurowatch-neurowatch:latest 62.83MiB  [stage-1 3/3] COPY --from=builder /app/neurowatch/target/neurowatch-*.jar app.ja│
+│<missing>                               0B        ENTRYPOINT ["java" "-jar" "/app/app.jar"]                                       │
+│<missing>                               0B        EXPOSE map[8080/tcp:{}]                                                         │
+│<missing>                               0B        COPY /app/neurowatch/target/neurowatch-*.jar app.jar # buildkit                 │
+│<missing>                               126.43MiB WORKDIR /app  
+```
