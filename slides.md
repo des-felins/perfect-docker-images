@@ -133,6 +133,9 @@ background: /cubes.png
 - Vaadin
 - Spring Security
 
+<img src="/nw1.png" width="350px" class="absolute right-10px bottom-5px"/>
+<img src="/nw2.png" width="400px" class="absolute right-360px bottom-5px"/>
+
 ---
 
 # Отправная точка
@@ -663,6 +666,7 @@ RUN java -Dspring.aot.enabled=true -XX:AOTMode=create \
 ```
 
 Итоговый образ больше: 308МБ (архив 76МБ)
+<br>
 Но! Старт быстрее на 50-60%
 
 
@@ -697,7 +701,7 @@ COPY --from=builder /app/neurowatch/target/native/neurowatch /app/app
 ```
 
 ---
-# Результат {none|2,10}
+# Результат {none|2,10}{maxHeight:'180px'}
 
 ```plain
 IMAGE          CREATED          CREATED BY                                      SIZE      COMMENT
@@ -705,7 +709,6 @@ IMAGE          CREATED          CREATED BY                                      
 <missing>      55 minutes ago   COPY /app/neurowatch/target/native/neurowatc…   0B        buildkit.dockerfile.v0
 <missing>      55 minutes ago   ENTRYPOINT ["/app/app"]                         0B        buildkit.dockerfile.v0
 <missing>      20 hours ago     WORKDIR /app                                    8.64MB    buildkit.dockerfile.v0
-
 ```
 
 - Один файл, который нужно полностью ребилдить
@@ -722,6 +725,7 @@ IMAGE          CREATED          CREATED BY                                      
 - Старт за несколько миллисекунд
 
 <v-click>Звучит заманчиво... В чем подвох?</v-click>
+
 
 ---
 # CRaC - это сложно
@@ -798,7 +802,7 @@ docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE -d pre_crac
 
 Делаем чекпойнт
 
-```bash {none|1|3|5|6}
+```bash {none|1|3|4}
 ID=$(docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE -p8080:8080 -d pre_crack)
 
 docker exec -it $ID jcmd 129 JDK.checkpoint
@@ -817,4 +821,3 @@ docker run --rm -d \
 ```
 
 </v-click>
-
