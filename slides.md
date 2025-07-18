@@ -85,7 +85,6 @@ Liberica JDK официально рекомендована <logos-spring-icon 
 
 - Крошечный размер
 - Молниеносный старт
-- Безопасность
 - Быстрый push/pull
 - Автоматическая сборка без Докерфайла
 - Всё сразу?
@@ -115,15 +114,6 @@ Liberica JDK официально рекомендована <logos-spring-icon 
 <br><br>
 <v-click>А вот про подходы я сейчас расскажу 😎</v-click>
 
-
----
-class: text-center
-layout: cover
-background: /cubes.png
----
-
-# Начнем с уменьшения размера образа
-
 ---
 
 # Демо приложение NeuroWatch
@@ -139,6 +129,15 @@ background: /cubes.png
 ---
 
 # Отправная точка
+
+```dockerfile {none|1|3|4|6}
+FROM bellsoft/liberica-openjdk-debian:24 as builder
+WORKDIR /app
+ADD . /app/neurowatch
+RUN cd neurowatch && ./mvnw -Pproduction clean package
+EXPOSE 8081
+ENTRYPOINT java -jar /app/neurowatch/target/*.jar
+```
 
 <v-click at="1">
 
@@ -165,21 +164,11 @@ background: /cubes.png
 </v-click>
 
 
-
-```dockerfile {none|1|3|4|6}
-FROM bellsoft/liberica-openjdk-debian:24 as builder
-WORKDIR /app
-ADD . /app/neurowatch
-RUN cd neurowatch && ./mvnw -Pproduction clean package
-EXPOSE 8081
-ENTRYPOINT java -jar /app/neurowatch/target/*.jar
-```
-
 ---
 
 # Результат: 780 МБ
 
-```plain {none|19||18|9-17|8|5|4|2,3}{maxHeight:'300px'}
+```plain {none|19,18|9-17|8|5,4}{maxHeight:'300px'}
 ID         TAG                          SIZE      COMMAND                                                                         │
 │946a796e83 neurowatch-neurowatch:latest 0B        ENTRYPOINT ["/bin/sh" "-c" "java -jar /app/neurowatch/target/*.jar"]            │
 │<missing>                               0B        EXPOSE map[8081/tcp:{}]                                                         │
@@ -225,7 +214,7 @@ background: /cubes.png
 
 ---
 
-## Раунд 1: Многоэтапные сборки (multi-stage build)
+## Раунд 1: Многоэтапные сборки (multi-stage builds)
 
 - Несколько FROM инструкций в одном Докерфайле
 - "Чистый" итоговый образ без лишних компонентов
@@ -435,7 +424,7 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 # Результат: 197МБ
 
-```plain{none|3-6|2}{maxHeight:'180px'}
+```plain{none|5-8|2}{maxHeight:'180px'}
 │ID         TAG                          SIZE      COMMAND                                                                        │
 │b811866cc5 neurowatch-neurowatch:latest 6.72MiB   [stage-2 6/6] COPY --from=optimizer /app/extracted/application/ ./             │
 │<missing>                               0B        ENTRYPOINT ["java" "-jar" "/app/app.jar"]                                      │
@@ -498,7 +487,7 @@ image: "/stream-v.png"
 
 ---
 
-# Базовый пример использования
+# Базовый пример использования со Спрингом
 
 Утилита pack
 
@@ -563,6 +552,13 @@ gradle bootBuildImage
 
 ```
 
+<v-click at="6">Ubuntu slim: нет shell, но образ больше</v-click>
+<br>
+<v-click at="7">Можно взять билдпак bellsoft/buildpacks.builder:musl: меньше и с shell</v-click>
+<br>
+<v-click at="8">А еще билдпаком можно делать нативные образы в контейнерах</v-click>
+
+
 ---
 class: text-center
 layout: cover
@@ -587,7 +583,7 @@ background: /speed.png
 - Часть Project Leyden
 - Java 24: Ahead-of-Time Class Loading & Linking (JEP 483)
 - Пока AOT Cache содержит метаданные об инициализированных и слинкованных классах приложения
-- 
+
 
 > Improve startup time by making the classes of an application instantly available, in a loaded and linked state, when the HotSpot Java Virtual Machine starts. Achieve this by monitoring the application during one run and storing the loaded and linked forms of all classes in a cache for use in subsequent runs. Lay a foundation for future improvements to both startup and warmup time.
 
@@ -674,7 +670,7 @@ RUN java -Dspring.aot.enabled=true -XX:AOTMode=create \
 
 ## Раунд 2: Native Image
 
-- GraalVM Native Image - компиляция Java-приолжения на этапе сборки
+- GraalVM Native Image - компиляция Java-приложения на этапе сборки
 - Платформо-зависимый .exe файл
 - Не требует JVM
 - Стартует очень быстро и без разогрева
@@ -701,9 +697,10 @@ COPY --from=builder /app/neurowatch/target/native/neurowatch /app/app
 ```
 
 ---
-# Результат {none|2,10}{maxHeight:'180px'}
 
-```plain
+# Результат: 198МБ
+
+```plain {2,5}{maxHeight:'180px'}
 IMAGE          CREATED          CREATED BY                                      SIZE      COMMENT
 757636acfada   8 minutes ago    [stage-1 3/3] COPY --from=builder /app/neuro…   185MB     buildkit.exporter.image.v0
 <missing>      55 minutes ago   COPY /app/neurowatch/target/native/neurowatc…   0B        buildkit.dockerfile.v0
@@ -712,11 +709,13 @@ IMAGE          CREATED          CREATED BY                                      
 ```
 
 - Один файл, который нужно полностью ребилдить
-- Но зато:
-  - В основе только Линукс
-  - Старт за 0,4 с
+
+Но зато:
+- В основе только Линукс
+- Старт за 0,4 с
 
 ---
+
 ## Раунд 3: CRaC
 
 - Coordinated Restore at Checkpoint - проект OpenJDK
@@ -724,10 +723,12 @@ IMAGE          CREATED          CREATED BY                                      
 - Как в видеоигре: поставили на паузу, начали с той же точки
 - Старт за несколько миллисекунд
 
-<v-click>Звучит заманчиво... В чем подвох?</v-click>
+<br><br>
+<v-click> Звучит заманчиво... В чем подвох?</v-click>
 
 
 ---
+
 # CRaC - это сложно
 
 - Снэпшот может содержать конфиденциальные данные
@@ -737,6 +738,8 @@ IMAGE          CREATED          CREATED BY                                      
 
 
 ---
+
+# Процесс в общих чертах
 
 ```docker {none|7|12}
 FROM bellsoft/liberica-runtime-container:jdk-musl as builder
@@ -767,34 +770,12 @@ docker build -t pre_crack -f crac2/Dockerfile crac2
 
 Запускаем
 
-````md magic-move
-```bash
-docker run -d pre_crack
-```
-
-```bash
-docker run -d pre_crack
-# не сработает
-```
-
-```bash
-docker run --privileged -d pre_crack
-```
-
-```bash
-docker run --privileged -d pre_crack
-# сработает, но СБ нас побьют
-```
-
 ```bash
 docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE -d pre_crack
 ```
 
-```bash
-docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE -d pre_crack
-# Оптимальный вариант
-```
-````
+- CAP_SYS_ADMIN для использования привилегий, эквивалентных root-доступу
+- CAP_CHECKPOINT_RESTORE для успешной реалимзации checkpoint/restore
 
 ---
 
@@ -802,8 +783,9 @@ docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE -d pre_crac
 
 Делаем чекпойнт
 
-```bash {none|1|3|4}
-ID=$(docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE -p8080:8080 -d pre_crack)
+```bash {none|1,2|4|5}
+ID=$(docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
+-p8080:8080 -d pre_crack)
 
 docker exec -it $ID jcmd 129 JDK.checkpoint
 docker commit $ID cracked
@@ -821,3 +803,63 @@ docker run --rm -d \
 ```
 
 </v-click>
+
+---
+
+# Главный вопрос: как всё это собрать воедино?
+
+<img src="/con.jpg" class="center"/>
+
+<style>
+.center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+---
+
+# Подведём итог
+
+## Размер и скорость обновлений
+1. Многоэтапные сборки + маленький базовый образ = оптимальный размер
+2. Используем слои для более быстрого push/pull
+
+---
+
+# Подведём итог
+
+## Время старта
+1. AOT Cache - ускоренный старт без "кровопролития"
+2. Native Image - быстрый старт, оптимальный размер, но есть нюансы
+3. CRaC - самый быстрый старт, но придётся потрудиться
+
+---
+
+# Подведём итог
+
+## Удобство сборки
+1. Билдпаки: не нужно писать и поддерживать Докерфайл
+2. Тонкая настройка не всегда возможна
+
+---
+class: text-center
+layout: cover
+background: /cubes2.png
+---
+
+## Собрали тулкит для создания идеального образа
+## Теперь: Mix & Match!
+
+---
+layout: image-right
+image: "/qr.png"
+---
+
+# Спасибо за внимание!
+
+- <logos-bluesky /> @cat-edelveis.bsky.social
+- <logos-twitter /> cat_edelveis
+- <logos-linkedin-icon /> cat-edelveis
+- <logos-youtube /> @cbrjar
