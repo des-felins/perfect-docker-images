@@ -95,7 +95,7 @@ Liberica JDK официально рекомендована <logos-spring-icon 
 
 ## Погоня за идеалом может привести сюда 
 
-<img src="/monster.png" class="center"/>
+<img src="/monster.png" class="center"  width="400px"/>
 
 <style>
 .center {
@@ -153,7 +153,7 @@ ENTRYPOINT java -jar /app/neurowatch/target/*.jar
 
 <v-click at="3">
 
-- Собираем JAR-файл
+- Собираем JAR-файл (`mvn clean package`)
 
 </v-click>
 
@@ -163,10 +163,9 @@ ENTRYPOINT java -jar /app/neurowatch/target/*.jar
 
 </v-click>
 
-
 ---
 
-# Результат: 780 МБ
+# Результат: 788MiB (820MB)
 
 ```plain {none|19,18|9-17|8|5,4}{maxHeight:'300px'}
 ID         TAG                          SIZE      COMMAND                                                                         │
@@ -196,12 +195,12 @@ layout: image-right
 image: "/cubes-v.png"
 ---
 
-# 780МБ - нужно беспокоиться?
+# 820MB - нужно беспокоиться?
 
 
 - `push` дольше: больше времени на обновление
 - `pull` дольше: замедленное масштабирование
-- Занимает много места на диске
+- Десятки коммитов день, каждый по 820MB: быстро закончится место<br> для хранения всех этих образов
 
 ---
 class: text-center
@@ -251,9 +250,9 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 ---
 
-# Результат: 383МБ
+# Результат:  343MiB (359MB)
 
-```plain{none|7,15,16|4}{maxHeight:'300px'}
+```plain {none|7,15,16|4}{maxHeight:'300px'}
 ID         TAG                          SIZE      COMMAND                                                                         │
 │97855e4950 neurowatch-neurowatch:latest 0B        ENTRYPOINT ["java" "-jar" "/app/app.jar"]                                       │
 │<missing>                               0B        EXPOSE map[8080/tcp:{}]                                                         │
@@ -276,31 +275,17 @@ ID         TAG                          SIZE      COMMAND                       
 
 ## Раунд 2: Легковесный Линукс для контейнеров
 
-|                 | Alpaquita<br/>(musl) | Alpaquita<br/>(glibc) | Alpine<br/>(musl) | RHEL<br/>(Distroless UBI 10 Micro) | Ubuntu Jammy | Debian Slim |
-|-----------------|----------------------|-----------------------|-------------------|------------------------------------|--------------|-------------|
-| Размер (сжатый) | 3.8МБ                | 11.7МБ                | 3.45МБ            | 7.37МБ                             | 28.17МБ      | 27.8МБ      |
+|                      | Alpaquita<br/>(musl) | Alpaquita<br/>(glibc) | Alpine<br/>(musl) | RHEL<br/>(Distroless UBI 10 Micro) | Ubuntu Jammy | Debian Slim |
+|----------------------|----------------------|-----------------------|-------------------|------------------------------------|--------------|-------------|
+| Размер на Docker Hub | 3.8MB                | 11.7MB                | 3.45MB            | 7.37MB                             | 28.17MB      | 27.8MB      |
 
 
 ---
 
 # Снова меняем Докерфайл
 
-````md magic-move
-```docker
-FROM bellsoft/liberica-openjdk-debian:24 as builder
 
-WORKDIR /app
-ADD . /app/neurowatch
-RUN cd neurowatch && ./mvnw -Pproduction clean package
-
-FROM bellsoft/liberica-openjre-debian:24
-WORKDIR /app
-COPY --from=builder /app/neurowatch/target/neurowatch-*.jar app.jar
-EXPOSE 8080
-ENTRYPOINT ["java","-jar","/app/app.jar"]
-```
-
-```docker
+```docker{none|1,7|2}{maxHeight:'300px'}
 FROM bellsoft/liberica-runtime-container:jdk-24-musl as builder
 RUN apk add --no-cache nodejs npm
 WORKDIR /app
@@ -314,11 +299,10 @@ EXPOSE 8080
 ENTRYPOINT ["java","-jar","/app/app.jar"]
 ```
 
-````
 
 ---
 
-# Результат: 197МБ
+# Результат: 189MiB (189MB)
 
 ```plain{none|6,2}{maxHeight:'300px'}
 ID         TAG                          SIZE      COMMAND                                                                         │
@@ -331,23 +315,98 @@ ID         TAG                          SIZE      COMMAND                       
 
 ---
 
-## Раунд N (для сильных духом)
+## Раунд 3: jlink
 
-- Используем Jlink, чтобы вырезать кастомный рантайм
-- Docker-slim очищает образ от ненужных компонентов
+- Инструмент в составе JDK
+- Вырезает кастомный рантайм только с модулями, необходимыми приложению
 
-Итог ≈ 120МБ
 
-(но слой с приложением останется примерно такого же размера)
+---
+
+# Узнаём, какие модули использует приложение
+<br>
+Билдим JAR и извлекаем Exploded JAR (libs отдельно, JAR отдельно)
+
+```bash
+mvn clean package
+java -Djarmode=tools -jar target/app.jar extract
+```
+
+Используем jdeps для идентификации используемых модулей
+
+```bash
+jdeps --multi-release 24 --class-path 'app/lib/*' \
+--ignore-missing-deps --list-deps app/app.jar
+```
+
+---
+
+# Снова меняем Докерфайл
+
+```dockerfile {none|1,2,6|8-14|16|19,20|23}{maxHeight:'300px'}
+FROM bellsoft/liberica-runtime-container:jdk-all-24-musl as builder
+RUN apk add --no-cache nodejs npm
+
+WORKDIR /app
+ADD . /app/neurowatch
+RUN cd neurowatch && ./mvnw -Pproduction clean package
+
+RUN jlink --compress=2 --strip-debug --no-header-files \
+    --no-man-pages --add-modules \
+    java.base,java.compiler,java.desktop,java.instrument,java.logging,\
+    java.management,java.naming,java.net.http,java.prefs,java.rmi,\
+    java.scripting,java.security.jgss,java.security.sasl,java.sql,\
+    java.transaction.xa,java.xml,jdk.attach,jdk.jdi,jdk.jfr,jdk.unsupported \
+    --output /jlink-runtime
+
+FROM bellsoft/alpaquita-linux-base:stream-musl
+WORKDIR /app
+
+COPY --from=builder /app/neurowatch/target/neurowatch-*.jar app.jar
+COPY --from=builder /jlink-runtime /jlink-runtime
+
+EXPOSE 8080
+ENTRYPOINT ["/jlink-runtime/bin/java", "-jar", "app/app.jar"]
+```
+
+---
+
+# Результат: 141MiB (147MB)
+
+```plain {none|6|5|2}{maxHeight:'300px'}
+│ID         TAG                          SIZE     COMMAND                                                                                                     │
+│8946bef82b neurowatch-neurowatch:latest 62.83MiB [stage-1 3/3] COPY --from=builder /app/neurowatch/target/neurowatch-*.jar app.jar                           │
+│<missing>                               0B       ENTRYPOINT ["/jlink-runtime/bin/java" "-jar" "app.jar"]                                                     │
+│<missing>                               0B       EXPOSE map[8080/tcp:{}]                                                                                     │
+│<missing>                               70.12MiB COPY /jlink-runtime /jlink-runtime # buildkit                                             │
+│<missing>                               8.23MiB  WORKDIR /app 
+```
+
+
+---
+layout: image
+image: size.svg
+---
+
+---
+class: text-center
+layout: cover
+background: /cubes.png
+---
+
+## Но!
+## Слой с приложением
+## остаётся такого же размера
+## (65MB)
 
 ---
 layout: image-right
 image: "/cubes-v-2.png"
 ---
 
-# Что такое 62МБ?
+# Что такое 65MB?
 
-Малейшее изменение - и нужно делать push/pull 60МБ
+Малейшее изменение - и нужно делать push/pull 65MB
 
 Можно что-то с этим сделать?
 
@@ -365,10 +424,10 @@ background: /cubes.png
 
 - Spring Boot layered JARs
 - Отдельно:
-  - приложение
   - зависимости
   - SpringBootLoader
   - SNAPSHOT-зависимости
+  - приложение
 
 ---
 
@@ -404,7 +463,7 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 <v-click at="2">
 
-- Создаем "слоёный" JAR с помощью фич Спринга
+- Извлекаем "слоёный" JAR
 
 </v-click>
 
@@ -422,7 +481,7 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 ---
 
-# Результат: 197МБ
+# Результат: 189MiB (198MB)
 
 ```plain{none|5-8|2}{maxHeight:'180px'}
 │ID         TAG                          SIZE      COMMAND                                                                        │
@@ -430,8 +489,8 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 │<missing>                               0B        ENTRYPOINT ["java" "-jar" "/app/app.jar"]                                      │
 │<missing>                               0B        EXPOSE map[8080/tcp:{}]                                                        │
 │<missing>                               0B        COPY /app/extracted/application/ ./ # buildkit                                 │
-│<missing>                               0B        COPY /app/extracted/snapshot-dependencies/ ./ # buildkit                       │
-│<missing>                               55.86MiB  COPY /app/extracted/spring-boot-loader/ ./ # buildkit                          │
+│<missing>                               55.86MiB  COPY /app/extracted/snapshot-dependencies/ ./ # buildkit                       │
+│<missing>                               459.4 KB  COPY /app/extracted/spring-boot-loader/ ./ # buildkit                          │
 │<missing>                               0B        COPY /app/extracted/dependencies/ ./ # buildkit                                │
 │<missing>                               126.43MiB WORKDIR /app
 ```
@@ -445,7 +504,7 @@ image: "/pyramid.png"
 
 В размере слоя для push/pull!
 
-Размер активно-обновляемого слоя теперь 6,7МБ!
+Размер активно-обновляемого слоя теперь 7MB!
 
 <v-click at="1">А можно всё это не писать в Докерфайле? 😰</v-click>
 <br>
@@ -511,7 +570,7 @@ gradle bootBuildImage
 
 ---
 
-# Результат: 357МБ
+# Результат: 357MB
 
 Что происходит под капотом?
 
@@ -568,6 +627,14 @@ background: /speed.png
 # А если скорость старта сервиса важнее, чем размер образа?
 
 ---
+
+# Быстрее старт - быстрее rollout
+
+- Нужен быстрый rollout для быстрого feedback loop
+- Наша маленькая демка стартует за 3.2 секунды
+- Enterprise-grade приложения стартуют еще дольше
+
+---
 class: text-center
 layout: cover
 background: /speed.png
@@ -591,7 +658,9 @@ background: /speed.png
 
 # Как использовать со Спрингом?
 
-Добавить поддержку Spring AOT (еще больше данных в архиве!)
+Не обязательно, но полезно: добавить поддержку Spring AOT
+
+(еще больше данных в архиве!)
 
 ```xml
 <plugin>
@@ -645,7 +714,7 @@ RUN java -Dspring.aot.enabled=true -XX:AOTMode=create \
 
 ---
 
-# Цена успеха
+# Цена успеха: 293.9MiB (308MB)
 
 ```plain {2}{maxHeight:'180px'}
 │ID         TAG                          SIZE      COMMAND                                                                        │
@@ -661,16 +730,16 @@ RUN java -Dspring.aot.enabled=true -XX:AOTMode=create \
 │<missing>                               153.52MiB WORKDIR /app 
 ```
 
-Итоговый образ больше: 308МБ (архив 76МБ)
+Итоговый образ больше, т.к. архив 76MB
 <br>
-Но! Старт быстрее на 50-60%
+Но! Старт быстрее на 50-60% (1.2s)
 
 
 ---
 
 ## Раунд 2: Native Image
 
-- GraalVM Native Image - компиляция Java-приложения на этапе сборки
+- GraalVM Native Image - AOT компиляция Java-приложения
 - Платформо-зависимый .exe файл
 - Не требует JVM
 - Стартует очень быстро и без разогрева
@@ -698,7 +767,7 @@ COPY --from=builder /app/neurowatch/target/native/neurowatch /app/app
 
 ---
 
-# Результат: 198МБ
+# Результат: 198MB
 
 ```plain {2,5}{maxHeight:'180px'}
 IMAGE          CREATED          CREATED BY                                      SIZE      COMMENT
@@ -736,6 +805,48 @@ IMAGE          CREATED          CREATED BY                                      
 - Не всех технологии работают с CRaC "из коробки"
 - Одним Докерфайлом не обойтись
 
+---
+
+# Пример изменения кода
+
+```java {none|1-4|18-22|24-34|6-16}{maxHeight:'200px'}
+public class ExampleWithCRaCRestore {
+    private ScheduledExecutorService executor;
+    private long startTime = System.currentTimeMillis();
+    private int counter = 0;
+
+    class ExampleWithCRaCRestoreResource implements Resource {
+        @Override
+        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
+            executor.shutdown();
+        }
+
+        @Override
+        public void afterRestore(Context<? extends Resource> context) throws Exception {
+            ExampleWithCRaCRestore.this.startTask();
+        }
+    }
+
+    public static void main(String args[]) throws InterruptedException {
+        ExampleWithCRaCRestore exampleWithCRaC = new ExampleWithCRaCRestore();
+        Core.getGlobalContext().register(exampleWithCRaC.new ExampleWithCRaCRestoreResource());
+        exampleWithCRaC.startTask();
+    }
+
+    private void startTask() throws InterruptedException {
+        executor = Executors.newScheduledThreadPool(1);
+        executor.scheduleAtFixedRate(() -> {
+            long currentTimeMillis = System.currentTimeMillis();
+            System.out.println("Counter: " + counter + "(passed " + (currentTimeMillis-startTime) + " ms)");
+            startTime = currentTimeMillis;
+            counter++;
+        }, 1, 1, TimeUnit.SECONDS);
+        Thread.sleep(1000*30);
+        executor.shutdown();
+    }
+}
+```
+
 
 ---
 
@@ -761,87 +872,142 @@ ENTRYPOINT java -XX:CRaCCheckpointTo=/app/checkpoint app/app.jar
 ---
 
 # Первый этап
-
+<br>
 Создаем предварительный образ
 
 ```bash
-docker build -t pre_crack -f crac2/Dockerfile crac2
+docker build -t neurowatch-for-crac -f Dockerfile .
 ```
 
 Запускаем
 
 ```bash
-docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE -d pre_crack
+docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
+--name pre-crac -d neurowatch-for-crac
 ```
 
-- CAP_SYS_ADMIN для использования привилегий, эквивалентных root-доступу
-- CAP_CHECKPOINT_RESTORE для успешной реалимзации checkpoint/restore
+- CAP_SYS_PTRACE для доступа к информации обо всех процессах
+- CAP_CHECKPOINT_RESTORE для успешной реалимзации checkpoint/restore без root-доступа
 
 ---
 
 # Второй этап
-
+<br>
 Делаем чекпойнт
 
-```bash {none|1,2|4|5}
-ID=$(docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
--p8080:8080 -d pre_crack)
+```bash
+docker exec -it pre-crac jcmd 129 JDK.checkpoint
+```
 
-docker exec -it $ID jcmd 129 JDK.checkpoint
-docker commit $ID cracked
+Создаём новый образ с крэкнутым приложением
+
+```bash
+docker commit --change='ENTRYPOINT ["java", "-XX:CRaCRestoreFrom=/checkpoint"]' \
+pre-crac neurowatch-cracked 
 ```
 
 <v-click>
 
 А вот теперь можно запускать!
 
-```bash {none|1|2|3|4}
-docker run --rm -d \
-    --entrypoint java \
-    --network host cracked:latest \
-    -XX:CRaCRestoreFrom=/app/checkpoint
+```bash
+docker run --cap-add CHECKPOINT_RESTORE --cap-add SYS_PTRACE \
+--name crac neurowatch-cracked
 ```
 
 </v-click>
 
 ---
 
-# Главный вопрос: как всё это собрать воедино?
+# Petclinic запустилась бы...
+А вот наше демо - нет
 
-<img src="/con.jpg" class="center"/>
+- Spring Data MongoDB не поддерживает CRaC
 
-<style>
-.center {
-  display: block;
-  margin-left: auto;
-  margin-right: auto;
+<br>
+Варианты:
+
+- Мигрировать на другую технологию
+- Запросить поддержку
+- Самостоятельно имплементировать поддержку
+
+
+---
+
+# Как подружить MongoDB с CRaC
+
+Custom `MongoClient`
+
+```java {1|2-5|6-8|9}
+public class MongoClientProxy implements MongoClient {
+    volatile MongoClient delegate;
+
+    public MongoClientProxy(MongoClient initialClient) {
+        this.delegate = initialClient;
+    }
+
+    public void close() {
+        delegate.close();
+    }
+}  
+```
+
+---
+
+# Как подружить MongoDB с CRaC
+
+Кастомный CRaC Resource
+
+```java {1,2|7-11|4,8|5,9|10|13-16|18-21|20}{maxHeight:'260px'}
+@Component
+static public class MongoClientResource implements Resource {
+
+    private final MongoClientProxy mongoClientProxy;
+    private final MongoConnectionDetails details;
+
+    public MongoClientResource(MongoClient mongoClientProxy, MongoConnectionDetails details) {
+        this.mongoClientProxy = (MongoClientProxy) mongoClientProxy;
+        this.details = details;
+        Core.getGlobalContext().register(this);
+    }
+
+    @Override
+    public void beforeCheckpoint(Context<? extends Resource> context) {
+        mongoClientProxy.delegate.close();
+    }
+
+    @Override
+    public void afterRestore(Context<? extends Resource> context) {
+        mongoClientProxy.delegate = MongoClients.create(details.getConnectionString());
+    }
 }
-</style>
+```
 
 ---
 
-# Подведём итог
+# Как подружить MongoDB с CRaC
 
-## Размер и скорость обновлений
-1. Многоэтапные сборки + маленький базовый образ = оптимальный размер
-2. Используем слои для более быстрого push/pull
+Нужно заменить `MongoClient` в контексте
+
+```java {1,3|4|2,5}
+@Bean
+@Primary
+public MongoClient mongoClient(MongoConnectionDetails details) {
+    MongoClient initialClient = MongoClients.create(details.getConnectionString());
+    return new MongoClientProxy(initialClient);
+}
+```
+
+<v-click at="3">
+А вот теперь всё сработает!<br>
+Билдим образ и наслаждаемся молниеносным стартом.
+</v-click>
 
 ---
-
-# Подведём итог
-
-## Время старта
-1. AOT Cache - ускоренный старт без "кровопролития"
-2. Native Image - быстрый старт, оптимальный размер, но есть нюансы
-3. CRaC - самый быстрый старт, но придётся потрудиться
-
+layout: image
+image: start.svg
 ---
 
-# Подведём итог
-
-## Удобство сборки
-1. Билдпаки: не нужно писать и поддерживать Докерфайл
-2. Тонкая настройка не всегда возможна
 
 ---
 class: text-center
@@ -849,7 +1015,41 @@ layout: cover
 background: /cubes2.png
 ---
 
-## Собрали тулкит для создания идеального образа
+# Подведём итог?
+
+---
+
+# Размер и скорость обновлений
+1. Многоэтапные сборки + маленький базовый образ = оптимальный размер
+2. Используем слои для более быстрого push/pull
+
+---
+
+# Время старта
+1. AOT Cache - ускоренный старт без "кровопролития"
+2. Native Image - быстрый старт, оптимальный размер, но есть нюансы
+3. CRaC - самый быстрый старт, но придётся потрудиться
+
+---
+
+# Удобство сборки
+1. Билдпаки: не нужно писать и поддерживать Докерфайл
+2. Тонкая настройка не всегда возможна
+
+
+---
+layout: image
+image: bingo.png
+---
+
+
+---
+class: text-center
+layout: cover
+background: /cubes2.png
+---
+
+## Собрали тулкит для создания ВАШЕО идеального образа
 ## Теперь: Mix & Match!
 
 ---
