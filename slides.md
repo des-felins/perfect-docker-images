@@ -852,19 +852,18 @@ public class ExampleWithCRaCRestore {
 
 # Процесс в общих чертах
 
-```docker {none|7|12}
-FROM bellsoft/liberica-runtime-container:jdk-musl as builder
+```docker {none|7|11}
+FROM bellsoft/liberica-runtime-container:jdk-21-musl as builder
 RUN apk add --no-cache nodejs npm
 WORKDIR /app
-ADD . /app/demo
-RUN cd neurowatch && ./mvnw clean package
+ADD . /app/neurowatch
+RUN cd neurowatch && ./mvnw -Pproduction clean package
 
-FROM bellsoft/liberica-runtime-container:jdk-crac-cds-musl
+FROM bellsoft/liberica-runtime-container:jre-21-crac-cds-stream-musl
 
 WORKDIR /app
-COPY --from=builder /app/demo/target/demo-*.jar app.jar
-EXPOSE 8080
-ENTRYPOINT java -XX:CRaCCheckpointTo=/app/checkpoint app/app.jar
+COPY --from=builder /app/neurowatch/target/neurowatch-*.jar app.jar
+ENTRYPOINT ["java", "-XX:CRaCCheckpointTo=/app/checkpoint", "-jar", "/app/app.jar"]
 ```
 
 <v-click at="2">Но на этом этапе мы еще не создаем снэпшот!</v-click>
@@ -876,14 +875,15 @@ ENTRYPOINT java -XX:CRaCCheckpointTo=/app/checkpoint app/app.jar
 Создаем предварительный образ
 
 ```bash
-docker build -t neurowatch-for-crac -f Dockerfile .
+docker build -t neurowatch-for-crac -f Dockerfile-crac .
 ```
 
 Запускаем
 
 ```bash
-docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
---name pre-crac -d neurowatch-for-crac
+ID=$(docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
+-p 8080:8080 --network=host -d nw-pre-crac)
+
 ```
 
 - CAP_SYS_PTRACE для доступа к информации обо всех процессах
@@ -896,14 +896,13 @@ docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
 Делаем чекпойнт
 
 ```bash
-docker exec -it pre-crac jcmd 129 JDK.checkpoint
+docker exec -it $ID jcmd 129 JDK.checkpoint
 ```
 
 Создаём новый образ с крэкнутым приложением
 
 ```bash
-docker commit --change='ENTRYPOINT ["java", "-XX:CRaCRestoreFrom=/checkpoint"]' \
-pre-crac neurowatch-cracked 
+docker commit $ID cracked
 ```
 
 <v-click>
@@ -911,8 +910,10 @@ pre-crac neurowatch-cracked
 А вот теперь можно запускать!
 
 ```bash
-docker run --cap-add CHECKPOINT_RESTORE --cap-add SYS_PTRACE \
---name crac neurowatch-cracked
+docker run --rm \
+    --entrypoint java \
+    --network host cracked:latest \
+    -XX:CRaCRestoreFrom=/app/checkpoint
 ```
 
 </v-click>
