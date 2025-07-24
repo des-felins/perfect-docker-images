@@ -14,8 +14,6 @@ jobs:
         run: bun install
       - name: Build
         run: bun run build-gha
-      - name: Build PDF
-        run: bun run export-pdf
       - name: Deploy pages
         uses: crazy-max/ghaction-github-pages@v4
         with:
