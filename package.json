@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "build": "slidev build",
+    "build-gha": "slidev build --base /perfect-docker-image",
     "dev": "slidev --open",
-    "export": "slidev export"
+    "export": "slidev export",
+    "export-pdf": "slidev export --with-clicks --format pdf --output dist/index.pdf"
   },
   "dependencies": {
     "@iconify-json/line-md": "^1.2.8",

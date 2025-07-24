@@ -302,7 +302,7 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 
 ---
 
-# Результат: 189MiB (189MB)
+# Результат: 189MiB (198MB)
 
 ```plain{none|6,2}{maxHeight:'300px'}
 ID         TAG                          SIZE      COMMAND                                                                         │
@@ -489,9 +489,9 @@ ENTRYPOINT ["java","-jar","/app/app.jar"]
 │<missing>                               0B        ENTRYPOINT ["java" "-jar" "/app/app.jar"]                                      │
 │<missing>                               0B        EXPOSE map[8080/tcp:{}]                                                        │
 │<missing>                               0B        COPY /app/extracted/application/ ./ # buildkit                                 │
-│<missing>                               55.86MiB  COPY /app/extracted/snapshot-dependencies/ ./ # buildkit                       │
+│<missing>                               0B        COPY /app/extracted/snapshot-dependencies/ ./ # buildkit                       │
 │<missing>                               459.4 KB  COPY /app/extracted/spring-boot-loader/ ./ # buildkit                          │
-│<missing>                               0B        COPY /app/extracted/dependencies/ ./ # buildkit                                │
+│<missing>                               55.86MiB  COPY /app/extracted/dependencies/ ./ # buildkit                                │
 │<missing>                               126.43MiB WORKDIR /app
 ```
 
@@ -807,123 +807,7 @@ IMAGE          CREATED          CREATED BY                                      
 
 ---
 
-# Пример изменения кода
-
-```java {none|1-4|18-22|24-34|6-16}{maxHeight:'200px'}
-public class ExampleWithCRaCRestore {
-    private ScheduledExecutorService executor;
-    private long startTime = System.currentTimeMillis();
-    private int counter = 0;
-
-    class ExampleWithCRaCRestoreResource implements Resource {
-        @Override
-        public void beforeCheckpoint(Context<? extends Resource> context) throws Exception {
-            executor.shutdown();
-        }
-
-        @Override
-        public void afterRestore(Context<? extends Resource> context) throws Exception {
-            ExampleWithCRaCRestore.this.startTask();
-        }
-    }
-
-    public static void main(String args[]) throws InterruptedException {
-        ExampleWithCRaCRestore exampleWithCRaC = new ExampleWithCRaCRestore();
-        Core.getGlobalContext().register(exampleWithCRaC.new ExampleWithCRaCRestoreResource());
-        exampleWithCRaC.startTask();
-    }
-
-    private void startTask() throws InterruptedException {
-        executor = Executors.newScheduledThreadPool(1);
-        executor.scheduleAtFixedRate(() -> {
-            long currentTimeMillis = System.currentTimeMillis();
-            System.out.println("Counter: " + counter + "(passed " + (currentTimeMillis-startTime) + " ms)");
-            startTime = currentTimeMillis;
-            counter++;
-        }, 1, 1, TimeUnit.SECONDS);
-        Thread.sleep(1000*30);
-        executor.shutdown();
-    }
-}
-```
-
-
----
-
-# Процесс в общих чертах
-
-```docker {none|7|11}
-FROM bellsoft/liberica-runtime-container:jdk-21-musl as builder
-RUN apk add --no-cache nodejs npm
-WORKDIR /app
-ADD . /app/neurowatch
-RUN cd neurowatch && ./mvnw -Pproduction clean package
-
-FROM bellsoft/liberica-runtime-container:jre-21-crac-cds-stream-musl
-
-WORKDIR /app
-COPY --from=builder /app/neurowatch/target/neurowatch-*.jar app.jar
-ENTRYPOINT ["java", "-XX:CRaCCheckpointTo=/app/checkpoint", "-jar", "/app/app.jar"]
-```
-
-<v-click at="2">Но на этом этапе мы еще не создаем снэпшот!</v-click>
-
----
-
-# Первый этап
-<br>
-Создаем предварительный образ
-
-```bash
-docker build -t neurowatch-for-crac -f Dockerfile-crac .
-```
-
-Запускаем
-
-```bash
-ID=$(docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
--p 8080:8080 --network=host -d nw-pre-crac)
-
-```
-
-- CAP_SYS_PTRACE для доступа к информации обо всех процессах
-- CAP_CHECKPOINT_RESTORE для успешной реалимзации checkpoint/restore без root-доступа
-
----
-
-# Второй этап
-<br>
-Делаем чекпойнт
-
-```bash
-docker exec -it $ID jcmd 129 JDK.checkpoint
-```
-
-Создаём новый образ с крэкнутым приложением
-
-```bash
-docker commit $ID cracked
-```
-
-<v-click>
-
-А вот теперь можно запускать!
-
-```bash
-docker run --rm \
-    --entrypoint java \
-    --network host cracked:latest \
-    -XX:CRaCRestoreFrom=/app/checkpoint
-```
-
-</v-click>
-
----
-
-# Petclinic запустилась бы...
-А вот наше демо - нет
-
-- Spring Data MongoDB не поддерживает CRaC
+# Spring Data MongoDB не поддерживает CRaC
 
 <br>
 Варианты:
@@ -935,11 +819,23 @@ docker run --rm \
 
 ---
 
+# Добавлляем зависимость на CRaC
+
+```xml
+<dependency>
+    <groupId>org.crac</groupId>
+    <artifactId>crac</artifactId>
+    <version>1.5.0</version>
+</dependency>
+```
+
+---
+
 # Как подружить MongoDB с CRaC
 
 Custom `MongoClient`
 
-```java {1|2-5|6-8|9}
+```java 
 public class MongoClientProxy implements MongoClient {
     volatile MongoClient delegate;
 
@@ -959,7 +855,7 @@ public class MongoClientProxy implements MongoClient {
 
 Кастомный CRaC Resource
 
-```java {1,2|7-11|4,8|5,9|10|13-16|18-21|20}{maxHeight:'260px'}
+```java {1,2|7-11|13-16|18-21}{maxHeight:'260px'}
 @Component
 static public class MongoClientResource implements Resource {
 
@@ -999,10 +895,76 @@ public MongoClient mongoClient(MongoConnectionDetails details) {
 }
 ```
 
-<v-click at="3">
-А вот теперь всё сработает!<br>
-Билдим образ и наслаждаемся молниеносным стартом.
+---
+
+# Процесс создания снэпшота
+
+```docker {none|7|11}
+FROM bellsoft/liberica-runtime-container:jdk-21-musl as builder
+RUN apk add --no-cache nodejs npm
+WORKDIR /app
+ADD . /app/neurowatch
+RUN cd neurowatch && ./mvnw -Pproduction clean package
+
+FROM bellsoft/liberica-runtime-container:jre-21-crac-cds-stream-musl
+
+WORKDIR /app
+COPY --from=builder /app/neurowatch/target/neurowatch-*.jar app.jar
+ENTRYPOINT ["java", "-XX:CRaCCheckpointTo=/app/checkpoint", "-jar", "/app/app.jar"]
+```
+
+<v-click at="2">Но на этом этапе мы еще не создаем снэпшот!</v-click>
+
+---
+
+# Первый этап
+<br>
+Создаем предварительный образ
+
+```bash
+docker build -t nw-pre-crac -f Dockerfile-crac .
+```
+
+Запускаем
+
+```bash
+ID=$(docker run --cap-add CAP_SYS_PTRACE --cap-add CAP_CHECKPOINT_RESTORE \
+-p 8080:8080 --network=host -d nw-pre-crac)
+
+```
+
+- CAP_SYS_PTRACE для доступа к информации обо всех процессах
+- CAP_CHECKPOINT_RESTORE для успешной реализации checkpoint/restore без root-доступа
+
+---
+
+# Второй этап
+<br>
+Делаем чекпойнт
+
+```bash
+docker exec -it $ID jcmd 129 JDK.checkpoint
+```
+
+Создаём новый образ с крэкнутым приложением
+
+```bash
+docker commit $ID cracked
+```
+
+<v-click>
+
+А вот теперь можно запускать!
+
+```bash
+docker run --rm \
+    --entrypoint java \
+    --network host cracked:latest \
+    -XX:CRaCRestoreFrom=/app/checkpoint
+```
+
 </v-click>
+
 
 ---
 layout: image
@@ -1040,7 +1002,7 @@ background: /cubes2.png
 
 ---
 layout: image
-image: bingo.png
+image: bingo.svg
 ---
 
 
