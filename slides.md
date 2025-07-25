@@ -24,12 +24,10 @@ h2 {
 
 ---
 layout: image-right
-image: '/cat.jpg'
+image: /cat.jpg
 ---
 
 # Катрин Эдельвейс
-
-<img/>
 
 🥑 Developer Advocate в BellSoft
 
@@ -45,7 +43,7 @@ image: '/cat.jpg'
 
 ---
 layout: image-right
-image: '/members.png'
+image: /members.png
 ---
 
 # О компании
