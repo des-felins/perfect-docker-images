@@ -1,7 +1,6 @@
 ---
 theme: default
 background: /cover.jpg
-title: Creating a Perfect Docker Image for Java
 layout: cover
 class: text-center
 drawings:
@@ -25,7 +24,7 @@ h2 {
 
 ---
 layout: image-right
-image: "/cat.jpg"
+image: '/cat.jpg'
 ---
 
 # Катрин Эдельвейс
@@ -46,7 +45,7 @@ image: "/cat.jpg"
 
 ---
 layout: image-right
-image: "/members.png"
+image: '/members.png'
 ---
 
 # О компании
