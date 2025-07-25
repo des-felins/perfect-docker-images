@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "slidev build",
-    "build-gha": "slidev build --base /perfect-docker-image",
+    "build-gha": "slidev build --base /perfect-docker-images",
     "dev": "slidev --open",
     "export": "slidev export"
   },
